@@ -1,9 +1,11 @@
 Early WIP of SG sim and GA for Build Orders.
 
 You can run the sim by itself (included at the bottom of sim.js is an example list of commands).
+
 `node sim.js`
 
 Or you can run the GA which will run the sim with a goal (check the bottom of the ga.sim file to see a goal and example)
+
 `node ga.js`
 
 ```js
