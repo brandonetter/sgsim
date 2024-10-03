@@ -6,13 +6,15 @@ const possibleCommandsStandard =[
     'assignWorkerToTherium',
     // 'removeWorkerFromTherium',
     'buildWorker',
-    'buildLancer',
-    'buildExo'
+    // 'buildLancer',
+    'buildHedgehog',
+    // 'buildExo'
 ];
 const possibleCommandsBuildings =[
     'buildBarracks',
     'buildHabitat',
-    'buildBiokineticsLab'
+    'buildMechBay' ,
+    // 'buildBiokineticsLab'
 ];
 
 // add 1,2,3,4 to the end of each building commdand
@@ -65,31 +67,25 @@ class GeneticAlgorithm {
     // not actually functional or used
     // todo
     optimizeBuildOrder(chromosome, goal, maxTime) {
-        console.log("Optimizing build order...");
+        console.log("optimizeBuildOrder");
         let optimizedChromosome = [...chromosome];
-        let currentState;
+        let time = 0;
 
-        do {
-            const sim = new RTSEconomySimulation();
-            sim.run(maxTime, optimizedChromosome);
-            currentState = sim.getState();
-            console.log("Current state:", currentState);
-            console.log(this.goalReached(currentState, goal) ? "Goal reached!" : "Goal not reached");
-            if (this.goalReached(currentState, goal)) {
-                optimizedChromosome.pop();
-                console.log("Removed last action");
+        while (optimizedChromosome.length > 0) {
+            const testChromosome = optimizedChromosome.slice(0, -1);
+            const sim = new RTSEconomySimulation({}, goal);
+            sim.run(maxTime, testChromosome);
+            const result = sim.getState();
+
+            if (this.goalReached(result, goal)) {
+                time = result.goalReachedTime;
+                optimizedChromosome = testChromosome;
             } else {
-                console.log("Goal not reached, stopping optimization");
                 break;
             }
-        } while (optimizedChromosome.length > 0);
-
-        // Add back the last action that was necessary
-        if (optimizedChromosome.length < chromosome.length) {
-            optimizedChromosome.push(chromosome[optimizedChromosome.length]);
         }
 
-        return optimizedChromosome;
+        return {optimizedChromosome, time};
     }
     goalReached(state, goal) {
         return Object.entries(goal).every(([key, value]) => state[key] >= value);
@@ -197,6 +193,7 @@ class GeneticAlgorithm {
         let bestChromosome = null;
         let bestFitness = -Infinity;
         let bestState = null;
+        let bestSuccessfulActions = null;
 
         for (let gen = 0; gen < generations; gen++) {
           let population = Array(this.populationSize).fill().map(() => this.generateRandomChromosome(maxTime));
@@ -221,14 +218,20 @@ class GeneticAlgorithm {
             bestFitness = bestSolution.fitness;
             bestChromosome = bestSolution.chromosome;
             bestState = bestSolution.state;
+            bestSuccessfulActions = bestState.successfulActions;
 
             if (bestState.goalReached) {
-              maxTime = Math.ceil(bestState.goalReachedTime * 1.1); // Set max time to slightly above the best time
+              maxTime = Math.ceil(bestState.goalReachedTime ); // Set max time to slightly above the best time
             }
           }
 
           population = this.evolvePopulation(fitnessScores.map(f => f.chromosome), fitnessScores.map(f => f.fitness), maxTime);
         }
+
+        // Optimize the build order
+        const newC = this.optimizeBuildOrder(bestSuccessfulActions, this.goal, maxTime);
+
+        console.log("Optimized Build Order:", newC);
 
         return {
           bestChromosome,
@@ -241,22 +244,23 @@ class GeneticAlgorithm {
 
 // Example usage
 const goal = {
-    workers:10,
-    lancers: 1,
+    workers:8,
+    lancers: 0,
+    hedgehogs: 2,
     exos:0,
 };
 const ga = new GeneticAlgorithm(
-    300, // Population size
-    0.15, // Mutation rate
-    0.2, // Crossover rate
-    4, // Elitism count
+    8, // Population size
+    0.18, // Mutation rate
+    0.4, // Crossover rate
+    1, // Elitism count
    80, // Max chromosome length,
     goal
 );
 
-const initialMaxTime = 500; // seconds
+const initialMaxTime = 700; // seconds
 
-const { bestChromosome, bestFitness, bestState, finalMaxTime } = ga.run(400, initialMaxTime, goal);
+const { bestChromosome, bestFitness, bestState, finalMaxTime } = ga.run(4200, initialMaxTime, goal);
 
 console.log("Best Build Order:", bestChromosome);
 console.log("Best Fitness:", bestFitness);

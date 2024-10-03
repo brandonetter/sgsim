@@ -5,12 +5,39 @@ class Resource {
   }
 }
 class TheriumNode {
+  /*
+
+  These are some shenanigans
+  ... i'll keep tuning this method up but it should
+  be a solid groundwork for changing the effectiveness of a
+  therium node based on time/workers
+  */
   constructor() {
     this.assignedWorkers = 0;
+    this.radius = 0;
   }
 
-  // Todo: more complex therium if needed
+  increaseRadius() {
+    this.radius+=0.8;
+  }
+  decreaseRadius() {
+    this.radius-=0.8;
+  }
 
+
+  handleRadius(workersOnTherium) {
+    if (workersOnTherium < 5 && this.radius <= 1.6) {
+      this.increaseRadius();
+      return `Increased therium node radius to ${this.radius}`;
+    }
+    if(workersOnTherium === 5)
+    return 'No action taken';
+
+    if(workersOnTherium > 5 && this.radius > 0){
+      this.decreaseRadius();
+      return 'Decreased therium node radius';
+    }
+  }
   canAssignWorker() {
     return true;
   }
@@ -30,7 +57,7 @@ class TheriumNode {
   }
 
   getCurrentMiningTime() {
-    return 11.1; // Fixed mining time for therium
+    return 12.5 - this.radius;
   }
 }
 class GoldNode {
@@ -114,9 +141,7 @@ class Building {
   }
 
   getConstructionSpeed() {
-    // Calculate the total speed increase
     const totalSpeed = 1 + (this.assignedWorkers - 1) * 0.5;
-    // Return the fraction of speed for each worker
     return totalSpeed / this.assignedWorkers;
   }
 }
@@ -263,7 +288,7 @@ export class RTSEconomySimulation {
       therium: new Resource('Therium', initialState.therium || 0),
       orbitalEnergy: new Resource('OrbitalEnergy', 25),
     };
-
+    this.lastTheriumNodeUpdate = 0;
     this.goal = goal;
     this.goalReached = false;
     this.goalReachedTime = null;
@@ -324,21 +349,50 @@ export class RTSEconomySimulation {
           buildings: [{ type: 'biokineticsLab', count: 1 }]
         }
       },
+      hedgehog: {
+        buildTime: 30,
+        cost: {
+          gold: 150,
+          therium: 25
+        },
+        supplyCost: 3,
+        requirements: {
+          buildings: [{ type: 'mechBay', count: 1 }]
+        }
+      },
     };
 
     this.buildingTypes = {
       townCenter: { unitProduction: ['worker'], constructionTime: 0, cost: 0 },
-      barracks: { unitProduction: ['lancer','exo'], constructionTime: 40, cost: 150 },
+      barracks: { unitProduction: ['lancer','exo'], constructionTime: 40, cost: {
+        gold:150
+      }
+       },
       habitat: {
         unitProduction: [],
         constructionTime: 20,
-        cost: 100,
+        cost:{
+          gold:100
+        },
         supplyProvided: 15,
       },
       biokineticsLab: {
         unitProduction: [],
         constructionTime: 50,
-        cost: 100,
+        cost: {
+          gold:100
+        },
+        requirements: {
+          buildings: [{ type: 'barracks', count: 1 }],
+        },
+      },
+      mechBay: {
+        unitProduction: ['hedgehog'],
+        constructionTime: 45,
+        cost: {
+          gold: 150,
+          therium: 50
+        },
         requirements: {
           buildings: [{ type: 'barracks', count: 1 }],
         },
@@ -373,6 +427,8 @@ export class RTSEconomySimulation {
       exos: this.units.filter(u => u.type === 'exo').length,
       barracks: this.buildings.filter(b => b.type === 'barracks' && b.constructed).length,
       habitats: this.buildings.filter(b => b.type === 'habitat' && b.constructed).length,
+      mechBays: this.buildings.filter(b => b.type === 'mechBay' && b.constructed).length,
+      hedgehogs: this.units.filter(u => u.type === 'hedgehog').length,
       biokineticsLabs: this.buildings.filter(b => b.type === 'biokineticsLab' && b.constructed).length
     };
 
@@ -430,13 +486,16 @@ export class RTSEconomySimulation {
     // Check building requirements
     if (!this.checkBuildingRequirements(buildingInfo)) return false;
 
-    if (this.resources.gold.amount >= buildingInfo.cost) {
+    if (this.resources.gold.amount >= buildingInfo.cost.gold
+    ) {
+      if(buildingInfo.cost.therium && this.resources.therium.amount < buildingInfo.cost.therium) return false;
       const availableWorkers = this.units.filter(
         (unit) => unit.type === 'worker' && !unit.busy && !unit.assignedTheriumNode
       );
 
       if (availableWorkers.length >= workerCount) {
-        this.resources.gold.amount -= buildingInfo.cost;
+        this.resources.gold.amount -= buildingInfo.cost.gold;
+        if(buildingInfo.cost.therium) this.resources.therium.amount -= buildingInfo.cost.therium;
         const newBuilding = new Building(
           buildingType,
           buildingInfo.constructionTime,
@@ -456,41 +515,57 @@ export class RTSEconomySimulation {
   }
 
   startUnitProduction(unitType, buildingType) {
-    const building = this.buildings.find(
+    const eligibleBuildings = this.buildings.filter(
       (b) =>
         b.type === buildingType &&
         b.constructed &&
         this.buildingTypes[b.type].unitProduction.includes(unitType)
     );
-    if (building) {
-      const unitTypeInfo = this.unitTypes[unitType];
 
-      if (!this.checkUnitRequirements(unitTypeInfo)) return false;
+    if (eligibleBuildings.length === 0) return false;
 
-      if (typeof unitTypeInfo.cost === 'object' && unitTypeInfo.cost.gold) {
-        if (this.resources.gold.amount < unitTypeInfo.cost.gold) return false;
-      } else if (typeof unitTypeInfo.cost === 'object' && unitTypeInfo.cost.type === 'gold') {
-        if (this.resources.gold.amount < unitTypeInfo.cost.amount) return false;
-      }
+    const unitTypeInfo = this.unitTypes[unitType];
 
-      if (unitTypeInfo.cost.therium && this.resources.therium.amount < unitTypeInfo.cost.therium) return false;
+    if (!this.checkUnitRequirements(unitTypeInfo)) return false;
 
-      if (!this.hasAvailableSupply(unitTypeInfo.supplyCost)) return false;
-
-      if (typeof unitTypeInfo.cost === 'object' && unitTypeInfo.cost.gold) {
-        this.resources.gold.amount -= unitTypeInfo.cost.gold;
-      } else if (typeof unitTypeInfo.cost === 'object' && unitTypeInfo.cost.type === 'gold') {
-        this.resources.gold.amount -= unitTypeInfo.cost.amount;
-      }
-
-      if (unitTypeInfo.cost.therium) {
-        this.resources.therium.amount -= unitTypeInfo.cost.therium;
-      }
-
-      building.queue.push({ unitType, progress: 0 });
-      return true;
+    if (typeof unitTypeInfo.cost === 'object' && unitTypeInfo.cost.gold) {
+      if (this.resources.gold.amount < unitTypeInfo.cost.gold) return false;
+    } else if (typeof unitTypeInfo.cost === 'object' && unitTypeInfo.cost.type === 'gold') {
+      if (this.resources.gold.amount < unitTypeInfo.cost.amount) return false;
     }
-    return false;
+
+    if (unitTypeInfo.cost.therium && this.resources.therium.amount < unitTypeInfo.cost.therium) return false;
+
+    if (!this.hasAvailableSupply(unitTypeInfo.supplyCost)) return false;
+
+    // Find the building with the shortest effective queue
+    const buildingWithShortestQueue = eligibleBuildings.reduce((shortest, current) => {
+      const shortestQueueTime = this.calculateEffectiveQueueTime(shortest);
+      const currentQueueTime = this.calculateEffectiveQueueTime(current);
+      return currentQueueTime < shortestQueueTime ? current : shortest;
+    });
+
+    // Deduct resources
+    if (typeof unitTypeInfo.cost === 'object' && unitTypeInfo.cost.gold) {
+      this.resources.gold.amount -= unitTypeInfo.cost.gold;
+    } else if (typeof unitTypeInfo.cost === 'object' && unitTypeInfo.cost.type === 'gold') {
+      this.resources.gold.amount -= unitTypeInfo.cost.amount;
+    }
+
+    if (unitTypeInfo.cost.therium) {
+      this.resources.therium.amount -= unitTypeInfo.cost.therium;
+    }
+
+    // Add unit to the queue of the selected building
+    buildingWithShortestQueue.queue.push({ unitType, progress: 0 });
+    return true;
+  }
+
+  calculateEffectiveQueueTime(building) {
+    return building.queue.reduce((totalTime, queueItem) => {
+      const remainingTime = this.unitTypes[queueItem.unitType].buildTime - queueItem.progress;
+      return totalTime + remainingTime;
+    }, 0);
   }
 
   assignWorkerToNode(worker) {
@@ -584,6 +659,19 @@ export class RTSEconomySimulation {
       case 'buildBiokineticsLab4':
         success = this.startBuildingConstruction('biokineticsLab', 4);
         break;
+      case 'buildMechBay1':
+        success = this.startBuildingConstruction('mechBay', 1);
+        break;
+      case 'buildMechBay2':
+        success = this.startBuildingConstruction('mechBay', 2);
+        break;
+      case 'buildMechBay3':
+        success = this.startBuildingConstruction('mechBay', 3);
+        break;
+      case 'buildMechBay4':
+        success = this.startBuildingConstruction('mechBay', 4);
+        break;
+
       case 'buildWorker':
         success = this.startUnitProduction('worker', 'townCenter');
         break;
@@ -592,6 +680,9 @@ export class RTSEconomySimulation {
         break;
       case 'buildExo':
         success = this.startUnitProduction('exo', 'barracks');
+        break;
+      case 'buildHedgehog':
+        success = this.startUnitProduction('hedgehog', 'mechBay');
         break;
       case 'overcharge':
         success = this.activateOvercharge();
@@ -652,9 +743,24 @@ export class RTSEconomySimulation {
     );
   }
 
+  updateTheriumNodeRadius(deltaTime) {
+    this.lastTheriumNodeUpdate += deltaTime;
+    const theriumNode = this.theriumNodes[0];
+
+    if (this.lastTheriumNodeUpdate >= 25) { // Check if 25 seconds have passed
+      const workersOnTherium = this.units.filter(unit => unit.assignedTheriumNode === theriumNode).length;
+
+      const response = theriumNode.handleRadius(workersOnTherium);
+
+      this.lastTheriumNodeUpdate = 0; // Reset the timer
+    }
+  }
+
   update(deltaTime) {
     this.elapsedTime += deltaTime;
     this.updateOrbitalEnergy(deltaTime);
+
+    this.updateTheriumNodeRadius(deltaTime);
 
     if (
       Math.floor(this.elapsedTime / 10) > Math.floor(this.lastSnapshotTime / 10)
@@ -696,6 +802,11 @@ export class RTSEconomySimulation {
           // Double-check supply availability before creating the unit
           if (this.hasAvailableSupply(newUnitType.supplyCost)) {
             const newUnit = new Unit(currentProduction.unitType, newUnitType);
+            // add unit to completion timestamps
+              this.completionTimestamps.units.push({
+                  type: newUnit.type,
+                  time: this.elapsedTime,
+              });
             if (newUnit.type === 'worker') {
               if (this.units.filter((u) => u.type === 'worker').length < 16) {
                 this.assignWorkerToNode(newUnit);
@@ -775,6 +886,10 @@ export class RTSEconomySimulation {
       habitats: this.buildings.filter(
         (b) => b.type === 'habitat' && b.constructed
       ).length,
+      mechBays: this.buildings.filter(
+        (b) => b.type === 'mechBay' && b.constructed
+      ).length,
+      hedgehogs: this.units.filter((u) => u.type === 'hedgehog').length,
       successfulActions: this.successfulActions,
       goalReached: this.goalReached,
       goalReachedTime: this.goalReachedTime,
@@ -786,18 +901,29 @@ export class RTSEconomySimulation {
   }
 }
 
+
 // // example usage
-const sim = new RTSEconomySimulation();
-sim.run(180, [
+const sim = new RTSEconomySimulation({},
+  {
+    workers:8,
+    hedgehogs:1,
+  }
+);
+sim.run(380, [
+  // { type: 'buildWorker', time: 0 },
+  { type: 'assignWorkerToTherium', time: 0 },
   { type: 'assignWorkerToTherium', time: 0 },
   { type: 'buildBarracks1', time: 0 },
 
+  { type: 'assignWorkerToTherium', time: 15 },
   // overcharge
-  { type: 'overcharge', time: 40 },
-  { type: 'buildBiokineticsLab2', time: 41 },
+  // { type: 'overcharge', time: 40 },
+  // { type: 'buildBiokineticsLab2', time: 41 },
+
+  { type: 'buildMechBay2', time: 50 },
   // buildExo
-  { type: 'buildLancer', time: 90 },
-  { type: 'buildExo', time: 64 },
+  // { type: 'buildLancer', time: 90 },
+  { type: 'buildHedgehog', time: 90 },
 ]);
 
 console.log(sim.getState());

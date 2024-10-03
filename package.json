@@ -1,0 +1,20 @@
+{
+  "name": "sgsim",
+  "version": "1.0.0",
+  "description": "Early WIP of SG sim and GA for Build Orders.",
+  "main": "ga.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brandonetter/sgsim.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/brandonetter/sgsim/issues"
+  },
+  "homepage": "https://github.com/brandonetter/sgsim#readme"
+}
